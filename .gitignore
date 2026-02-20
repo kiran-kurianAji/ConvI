@@ -15,7 +15,7 @@ __pycache__/
 .env
 
 # Data / model artifacts (large files)
-data/faiss_index/
+# data/faiss_index/
 models/
 *.bin
 *.pt
