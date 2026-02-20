@@ -113,6 +113,31 @@ class ConfidenceScores(BaseModel):
     rag_retrieval: Optional[float] = None
 
 
+# ── Interim Pipeline Response (until full analytics implemented) ───────────
+
+class PipelineSegment(BaseModel):
+    """Single turn from speech or text pipeline (interim output)."""
+    speaker_id: str
+    start_time: float
+    end_time: float
+    original_text: str
+    language: str = "en"
+    emotion: Optional[str] = None
+    emotion_confidence: float = 0.0
+    transcription_confidence: float = 1.0
+
+
+class PipelineResponse(BaseModel):
+    """Interim response from /analyze/audio and /analyze/text."""
+    session_id: str
+    input_type: InputType
+    domain: str = "financial_banking"
+    segments: list[PipelineSegment]
+    audio_language: Optional[str] = None  # audio only
+    total_segments: int = 0
+    unique_speakers: int = 0
+
+
 # ── Final Response ────────────────────────────────────────────────────────
 
 class ConversationAnalyticsResponse(BaseModel):

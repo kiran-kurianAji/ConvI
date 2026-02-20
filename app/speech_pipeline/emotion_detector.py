@@ -28,6 +28,30 @@ import os
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+# Patch hf_hub_download so SpeechBrain's use_auth_token works with huggingface_hub >= 0.20
+def _patch_hf_hub():
+    try:
+        from huggingface_hub import hf_hub_download as _orig
+        def _patched(repo_id, *args, use_auth_token=None, token=None, **kwargs):
+            tok = token if token is not None else use_auth_token
+            return _orig(repo_id, *args, token=tok, **kwargs)
+        import huggingface_hub
+        huggingface_hub.hf_hub_download = _patched
+    except Exception:
+        pass
+_patch_hf_hub()
+
+# Patch transformers: AutoModelWithLMHead was removed; alias to AutoModelForCausalLM
+def _patch_transformers():
+    try:
+        import transformers
+        if not hasattr(transformers, "AutoModelWithLMHead"):
+            from transformers import AutoModelForCausalLM
+            transformers.AutoModelWithLMHead = AutoModelForCausalLM
+    except Exception:
+        pass
+_patch_transformers()
+
 import torch
 import torchaudio
 from loguru import logger
@@ -136,10 +160,11 @@ def detect_emotions(
         try:
             emotion, confidence = _infer_emotion(classifier, seg_wave)
             results.append(EmotionResult(emotion=emotion, confidence=confidence))
-            logger.debug(
-                f"[EmotionDetector] Seg {i} "
-                f"[{seg.start_time:.1f}s–{seg.end_time:.1f}s] "
-                f"→ '{emotion}' (conf={confidence:.2f})"
+            lvl = "INFO" if emotion != "neutral" or confidence > 0.5 else "DEBUG"
+            logger.log(
+                lvl,
+                f"[EmotionDetector] Seg {i} [{seg.start_time:.1f}s–{seg.end_time:.1f}s] "
+                f"→ '{emotion}' ({confidence*100:.1f}%)"
             )
         except Exception as exc:
             logger.warning(
@@ -168,29 +193,42 @@ def _infer_emotion(
     Tuple[str, float]
         (human-readable emotion label, confidence score)
     """
-    # SpeechBrain's foreign_class classifier expects a batch tensor
-    # shape: (batch=1, time)
+    # SpeechBrain expects [batch, time] at 16 kHz
     if waveform.dim() == 1:
         waveform = waveform.unsqueeze(0)
-
-    relative_lengths = torch.tensor([1.0])
+    # Relative length: 1.0 for single segment (full length for avg pooling)
+    wav_lens = torch.tensor([1.0], device=waveform.device, dtype=torch.float)
 
     with torch.no_grad():
         out_prob, score, index, label = classifier.classify_batch(
-            waveform, relative_lengths
+            waveform, wav_lens
         )
 
-    raw_label: str = label[0] if label[0] is not None else "neu"
-    confidence = float(score[0].item())
-    human_label = _LABEL_MAP.get(raw_label, raw_label)
+    # label can be list ["neu"] or tensor; extract first element
+    raw = label[0] if hasattr(label, "__getitem__") else label
+    raw_label = str(raw) if raw is not None else "neu"
+    # Confidence: model may return prob [0,1] or log_prob (negative)
+    conf_from_score = float(score[0].item()) if score.numel() > 0 else 0.0
+    conf_from_prob = float(out_prob.max().item()) if out_prob.numel() > 0 else 0.0
+    confidence = max(conf_from_score, conf_from_prob)
+    if confidence <= 0 and confidence > -10:  # log-prob e.g. -0.5
+        confidence = float(torch.exp(torch.tensor(confidence)).item())
+    confidence = max(0.0, min(1.0, confidence))
+    human_label = _LABEL_MAP.get(raw_label.lower()[:3], raw_label)
     return human_label, confidence
 
 
 # ── Audio helpers ──────────────────────────────────────────────────────────
 
 def _load_wav(path: Path) -> Tuple[torch.Tensor, int]:
-    """Load a WAV file and return (waveform, sample_rate)."""
-    waveform, sr = torchaudio.load(str(path))
+    """Load a WAV file and return (waveform, sample_rate). Uses soundfile to avoid torchcodec on Windows."""
+    import soundfile as sf
+    data, sr = sf.read(str(path), dtype="float32")
+    if data.ndim == 1:
+        data = data[None, :]
+    elif data.ndim == 2 and data.shape[0] > data.shape[1]:
+        data = data.T
+    waveform = torch.from_numpy(data)
     return waveform, sr
 
 
