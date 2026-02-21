@@ -1,0 +1,41 @@
+version: "3.9"
+
+# ============================================================
+# ConvI — PostgreSQL dev/test stack
+# ============================================================
+# Usage:
+#   docker compose up -d          → start in background
+#   docker compose down           → stop and remove containers
+#   docker compose down -v        → stop AND wipe the volume (full reset)
+#   docker compose logs -f db     → tail postgres logs
+# ============================================================
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: convi_postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER:     convi_user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB:       convi
+
+    ports:
+      - "5432:5432"        # host:container
+
+    volumes:
+      - convi_pgdata:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U convi_user -d convi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+# ── Named volume (persists between restarts) ─────────────────
+# Run `docker compose down -v` to wipe all data for a clean slate.
+volumes:
+  convi_pgdata:
+    driver: local

@@ -12,6 +12,7 @@ from loguru import logger
 
 from app.config import get_settings
 from app.routers import conversation
+from app.storage import init_db
 
 settings = get_settings()
 
@@ -22,9 +23,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"🚀 Starting {settings.app_name} v{settings.app_version}")
     logger.info(f"📌 Default domain: {settings.default_domain}")
 
-    # Initialize database tables (non-fatal)
+    # Initialize database tables (drop + recreate, non-fatal)
     try:
-        from app.storage import init_db
         init_db()
     except Exception as e:
         logger.warning(f"DB init skipped: {e}")
