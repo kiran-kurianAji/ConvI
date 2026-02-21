@@ -110,16 +110,19 @@ class AuditLog(Base):
 
 def init_db() -> bool:
     """
-    Create all tables if they don't exist.
-    Safe to call multiple times (idempotent).
-    Returns True on success, False on failure.
+    Drop ALL tables then recreate them from scratch.
+    Ensures a clean schema on every startup (dev / hackathon mode).
+    Returns True on success, False on failure (non-fatal — API continues).
     """
     try:
+        logger.info("[Storage] Dropping existing tables (clean-slate mode)...")
+        Base.metadata.drop_all(bind=engine)
+        logger.info("[Storage] Recreating tables...")
         Base.metadata.create_all(bind=engine)
-        logger.info("[Storage] Database tables initialized.")
+        logger.info("[Storage] Database tables ready (sessions, conversation_turns, analytics_results, audit_logs).")
         return True
     except Exception as e:
-        logger.warning(f"[Storage] DB init failed (non-fatal): {e}")
+        logger.warning(f"[Storage] DB init failed (non-fatal — API will run without persistence): {e}")
         return False
 
 
