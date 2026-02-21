@@ -12,6 +12,7 @@ from loguru import logger
 
 from app.config import get_settings
 from app.routers import conversation
+from app.routers import chat
 from app.storage import init_db
 
 settings = get_settings()
@@ -64,6 +65,7 @@ app.add_middleware(
 
 # ── Routers ───────────────────────────────────────────────────────────────
 app.include_router(conversation.router)
+app.include_router(chat.router)
 
 
 # ── Root health-check ─────────────────────────────────────────────────────
